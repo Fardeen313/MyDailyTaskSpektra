@@ -135,7 +135,7 @@ Used to quickly search and analyze large log data.
 
 ---
 
-# 4. CloudWatch Alarms (Detailed)
+# 4. CloudWatch Alarms
 
 A **CloudWatch Alarm** monitors a metric and performs actions when thresholds are crossed.
 
@@ -183,7 +183,7 @@ SNS Notification / Automation
 
 ---
 
-# 5. CloudWatch Metrics (Detailed)
+# 5. CloudWatch Metrics
 
 **Metrics** are time-ordered data points representing system performance.
 
