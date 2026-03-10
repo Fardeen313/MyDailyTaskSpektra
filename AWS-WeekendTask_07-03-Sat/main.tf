@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "ap-south-1"
+  region = "us-east-1"
 }
 
 ######################    AWS S3 Bucket     #####################################
@@ -50,12 +50,14 @@ data "aws_iam_instance_profile" "myexisting_role" {
 
 ######################   EC2 Instance with User Data and IAM Role ############################
 resource "aws_instance" "my_ec2_instance" {
-  ami                  = var.image
-  instance_type        = var.instance_type
-  key_name             = var.key
-  iam_instance_profile = data.aws_iam_instance_profile.myexisting_role.name
-  depends_on           = [aws_s3_object.upload_script]
-  user_data            = file("userdata.sh")
+  ami                    = var.image
+  instance_type          = var.instance_type
+  key_name               = var.key
+  associate_public_ip_address = true
+  iam_instance_profile   = data.aws_iam_instance_profile.myexisting_role.name
+  depends_on             = [aws_s3_object.upload_script]
+  vpc_security_group_ids = [var.security_group_id]
+  user_data = file("script.sh")
   tags = {
     Name = "MyEC2Instance"
   }
@@ -65,4 +67,7 @@ output "public" {
 }
 output "name" {
   value = data.aws_iam_instance_profile.myexisting_role.id
+}
+output "sg_id" {
+  value = var.security_group_id
 }

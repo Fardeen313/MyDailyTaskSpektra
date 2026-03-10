@@ -23,3 +23,8 @@ variable "bucket_key" {
   description = "directory_inside_bucket"
   default     = ""
 }
+variable "security_group_id" {
+  description = "value"
+  type        = string
+  default     = ""
+}
