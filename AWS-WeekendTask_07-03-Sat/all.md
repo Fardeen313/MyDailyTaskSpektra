@@ -1,4 +1,4 @@
-# Weekly Task Log
+# Weekly Task Details
 
 ---
 
