@@ -1,4 +1,4 @@
-# Daily Session Log
+# Weekly Task Log
 
 ---
 
