@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  flask_app:
+    build: .
+    container_name: flask_app
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      MYSQL_USER: "admin"
+      MYSQL_PASSWORD: "888831355"
+      MYSQL_HOST: "book.rds.com"
+      MYSQL_PORT: "3306"
+      MYSQL_DB: "test"
