@@ -349,6 +349,7 @@ eksctl create cluster \
   --node-type t3.small
 ```
 **kubectl apply -f deployment.yaml**
+
 **kubectl apply -f service.yaml**
 ---
 
