@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # --- AWS RDS MySQL Configuration ---
 MYSQL_USER     = os.environ.get("MYSQL_USER", "admin")
-MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "8888313545")
+MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "demo@957684")
 MYSQL_HOST     = os.environ.get("MYSQL_HOST", "database-1.cglioew4ktr8.us-east-1.rds.amazonaws.com")
 MYSQL_PORT     = os.environ.get("MYSQL_PORT", "3306")
 MYSQL_DB       = os.environ.get("MYSQL_DB", "test")
