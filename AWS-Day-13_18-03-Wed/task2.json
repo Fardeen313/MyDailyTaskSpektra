@@ -1,0 +1,446 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Conditional EC2 deployment — Windows (IIS), Linux (Nginx), or Both. Region: us-east-1 | SSH/RDP restricted to 14.99.81.62/32 Public IPs are auto-assigned (no Elastic IPs)\n",
+	"Parameters": {
+		"OSType": {
+			"Type": "String",
+			"AllowedValues": [
+				"Windows",
+				"Linux",
+				"Both"
+			],
+			"Default": "Both",
+			"Description": "Choose which OS(es) to deploy: Windows, Linux, or Both"
+		},
+		"KeyPairName": {
+			"Type": "AWS::EC2::KeyPair::KeyName",
+			"Description": "EC2 Key Pair for SSH/RDP access"
+		},
+		"InstanceType": {
+			"Type": "String",
+			"Default": "t3.medium",
+			"AllowedValues": [
+				"t3.small",
+				"t3.medium",
+				"t3.large"
+			],
+			"Description": "EC2 instance type"
+		},
+		"WindowsAMI": {
+			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+			"Default": "/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base",
+			"Description": "Latest Windows Server 2022 AMI (auto-fetched)"
+		},
+		"LinuxAMI": {
+			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+			"Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+			"Description": "Latest Amazon Linux 2023 AMI (auto-fetched)"
+		}
+	},
+	"Conditions": {
+		"DeployWindows": {
+			"Fn::Or": [
+				{
+					"Fn::Equals": [
+						{
+							"Ref": "OSType"
+						},
+						"Windows"
+					]
+				},
+				{
+					"Fn::Equals": [
+						{
+							"Ref": "OSType"
+						},
+						"Both"
+					]
+				}
+			]
+		},
+		"DeployLinux": {
+			"Fn::Or": [
+				{
+					"Fn::Equals": [
+						{
+							"Ref": "OSType"
+						},
+						"Linux"
+					]
+				},
+				{
+					"Fn::Equals": [
+						{
+							"Ref": "OSType"
+						},
+						"Both"
+					]
+				}
+			]
+		}
+	},
+	"Resources": {
+		"MyVPC": {
+			"Type": "AWS::EC2::VPC",
+			"Properties": {
+				"CidrBlock": "10.0.0.0/16",
+				"EnableDnsSupport": true,
+				"EnableDnsHostnames": true,
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "MyVPC"
+					}
+				]
+			}
+		},
+		"MyInternetGateway": {
+			"Type": "AWS::EC2::InternetGateway",
+			"Properties": {
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "MyIGW"
+					}
+				]
+			}
+		},
+		"AttachGateway": {
+			"Type": "AWS::EC2::VPCGatewayAttachment",
+			"Properties": {
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"InternetGatewayId": {
+					"Ref": "MyInternetGateway"
+				}
+			}
+		},
+		"PublicSubnet1": {
+			"Type": "AWS::EC2::Subnet",
+			"Properties": {
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"CidrBlock": "10.0.1.0/24",
+				"MapPublicIpOnLaunch": true,
+				"AvailabilityZone": "us-east-1a",
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "PublicSubnet1-us-east-1a"
+					}
+				]
+			}
+		},
+		"PublicSubnet2": {
+			"Type": "AWS::EC2::Subnet",
+			"Properties": {
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"CidrBlock": "10.0.2.0/24",
+				"MapPublicIpOnLaunch": true,
+				"AvailabilityZone": "us-east-1b",
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "PublicSubnet2-us-east-1b"
+					}
+				]
+			}
+		},
+		"PublicRouteTable": {
+			"Type": "AWS::EC2::RouteTable",
+			"Properties": {
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "PublicRT"
+					}
+				]
+			}
+		},
+		"DefaultRoute": {
+			"Type": "AWS::EC2::Route",
+			"DependsOn": "AttachGateway",
+			"Properties": {
+				"RouteTableId": {
+					"Ref": "PublicRouteTable"
+				},
+				"DestinationCidrBlock": "0.0.0.0/0",
+				"GatewayId": {
+					"Ref": "MyInternetGateway"
+				}
+			}
+		},
+		"SubnetRouteTableAssociation1": {
+			"Type": "AWS::EC2::SubnetRouteTableAssociation",
+			"Properties": {
+				"SubnetId": {
+					"Ref": "PublicSubnet1"
+				},
+				"RouteTableId": {
+					"Ref": "PublicRouteTable"
+				}
+			}
+		},
+		"SubnetRouteTableAssociation2": {
+			"Type": "AWS::EC2::SubnetRouteTableAssociation",
+			"Properties": {
+				"SubnetId": {
+					"Ref": "PublicSubnet2"
+				},
+				"RouteTableId": {
+					"Ref": "PublicRouteTable"
+				}
+			}
+		},
+		"WindowsSG": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Condition": "DeployWindows",
+			"Properties": {
+				"GroupDescription": "Windows: RDP from your IP + HTTP public",
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 3389,
+						"ToPort": 3389,
+						"CidrIp": "14.99.81.62/32",
+						"Description": "RDP - Fardeens IP only"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 80,
+						"ToPort": 80,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "HTTP public - IIS"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 443,
+						"ToPort": 443,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "HTTPS public"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "WindowsSG"
+					}
+				]
+			}
+		},
+		"LinuxSG": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Condition": "DeployLinux",
+			"Properties": {
+				"GroupDescription": "Linux: SSH from your IP + HTTP public",
+				"VpcId": {
+					"Ref": "MyVPC"
+				},
+				"SecurityGroupIngress": [
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 22,
+						"ToPort": 22,
+						"CidrIp": "14.99.81.62/32",
+						"Description": "SSH - Fardeens IP only"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 80,
+						"ToPort": 80,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "HTTP public - Nginx"
+					},
+					{
+						"IpProtocol": "tcp",
+						"FromPort": 443,
+						"ToPort": 443,
+						"CidrIp": "0.0.0.0/0",
+						"Description": "HTTPS public"
+					}
+				],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "LinuxSG"
+					}
+				]
+			}
+		},
+		"EC2SSMRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"RoleName": {
+					"Fn::Sub": "${AWS::StackName}-ec2-ssm-role"
+				},
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": "ec2.amazonaws.com"
+							},
+							"Action": "sts:AssumeRole"
+						}
+					]
+				},
+				"ManagedPolicyArns": [
+					"arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+				]
+			}
+		},
+		"EC2InstanceProfile": {
+			"Type": "AWS::IAM::InstanceProfile",
+			"Properties": {
+				"Roles": [
+					{
+						"Ref": "EC2SSMRole"
+					}
+				]
+			}
+		},
+		"WindowsInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Condition": "DeployWindows",
+			"Properties": {
+				"ImageId": {
+					"Ref": "WindowsAMI"
+				},
+				"InstanceType": {
+					"Ref": "InstanceType"
+				},
+				"KeyName": {
+					"Ref": "KeyPairName"
+				},
+				"SubnetId": {
+					"Ref": "PublicSubnet1"
+				},
+				"SecurityGroupIds": [
+					{
+						"Ref": "WindowsSG"
+					}
+				],
+				"IamInstanceProfile": {
+					"Ref": "EC2InstanceProfile"
+				},
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${AWS::StackName}-windows-server"
+						}
+					},
+					{
+						"Key": "OS",
+						"Value": "Windows"
+					}
+				],
+				"UserData": {
+					"Fn::Base64": "<powershell>\n# ── Install IIS and management tools ──\nInstall-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-Common-Http -IncludeAllSubFeature\n\n# ── Wait for IIS to initialize ──\nStart-Sleep -Seconds 5\n\n# ── Remove default IIS placeholder page ──\nRemove-Item \"C:\\inetpub\\wwwroot\\iisstart.htm\" -Force -ErrorAction SilentlyContinue\nRemove-Item \"C:\\inetpub\\wwwroot\\iisstart.png\" -Force -ErrorAction SilentlyContinue\n\n# ── Write custom HTML ──\n$html = @\"\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"/>\n  <title>Windows IIS Server</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body {\n      min-height: 100vh;\n      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);\n      display: flex;\n      flex-direction: column;\n      align-items: center;\n      justify-content: center;\n      font-family: 'Segoe UI', sans-serif;\n      color: #fff;\n    }\n    .card {\n      background: rgba(255,255,255,0.08);\n      backdrop-filter: blur(12px);\n      border: 1px solid rgba(255,255,255,0.15);\n      border-radius: 20px;\n      padding: 50px 60px;\n      text-align: center;\n      max-width: 620px;\n      box-shadow: 0 25px 50px rgba(0,0,0,0.4);\n    }\n    .badge {\n      display: inline-block;\n      background: #0078d4;\n      color: #fff;\n      font-size: 0.75rem;\n      font-weight: 700;\n      letter-spacing: 2px;\n      text-transform: uppercase;\n      padding: 6px 18px;\n      border-radius: 20px;\n      margin-bottom: 24px;\n    }\n    h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: 12px; }\n    p  { font-size: 1.1rem; opacity: 0.75; line-height: 1.6; }\n    .meta {\n      margin-top: 32px;\n      display: flex;\n      gap: 16px;\n      justify-content: center;\n      flex-wrap: wrap;\n    }\n    .chip {\n      background: rgba(0,120,212,0.3);\n      border: 1px solid rgba(0,120,212,0.5);\n      border-radius: 8px;\n      padding: 8px 16px;\n      font-size: 0.85rem;\n    }\n    .footer { margin-top: 36px; font-size: 0.8rem; opacity: 0.45; }\n  </style>\n</head>\n<body>\n  <div class=\"card\">\n    <span class=\"badge\">Windows Server 2022</span>\n    <h1>🪟 IIS Web Server</h1>\n    <p>Successfully deployed via AWS CloudFormation.<br/>Internet Information Services (IIS) is up and running.</p>\n    <div class=\"meta\">\n      <span class=\"chip\">⚙️ IIS 10.0</span>\n      <span class=\"chip\">☁️ AWS EC2 — us-east-1</span>\n      <span class=\"chip\">🔒 CloudFormation</span>\n    </div>\n    <div class=\"footer\">Automated infrastructure deployment — Windows stack</div>\n  </div>\n</body>\n</html>\n\"@\n\n$html | Out-File -FilePath \"C:\\inetpub\\wwwroot\\index.html\" -Encoding UTF8\n\n# ── Ensure IIS service is running ──\nStart-Service W3SVC\nSet-Service W3SVC -StartupType Automatic\n\nWrite-Host \"IIS setup complete.\"\n</powershell>\n<persist>true</persist>\n"
+				}
+			}
+		},
+		"LinuxInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Condition": "DeployLinux",
+			"Properties": {
+				"ImageId": {
+					"Ref": "LinuxAMI"
+				},
+				"InstanceType": {
+					"Ref": "InstanceType"
+				},
+				"KeyName": {
+					"Ref": "KeyPairName"
+				},
+				"SubnetId": {
+					"Ref": "PublicSubnet2"
+				},
+				"SecurityGroupIds": [
+					{
+						"Ref": "LinuxSG"
+					}
+				],
+				"IamInstanceProfile": {
+					"Ref": "EC2InstanceProfile"
+				},
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": {
+							"Fn::Sub": "${AWS::StackName}-linux-server"
+						}
+					},
+					{
+						"Key": "OS",
+						"Value": "Linux"
+					}
+				],
+				"UserData": {
+					"Fn::Base64": "#!/bin/bash\nset -e\n\n# ── Update system packages ──\ndnf update -y\n\n# ── Install Nginx ──\ndnf install -y nginx\n\n# ── Enable and start Nginx ──\nsystemctl enable nginx\nsystemctl start nginx\n\n# ── Write custom HTML ──\ncat > /usr/share/nginx/html/index.html << 'HTMLEOF'\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"/>\n  <title>Linux Nginx Server</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body {\n      min-height: 100vh;\n      background: linear-gradient(135deg, #0b3d0b, #145214, #1a6b1a);\n      display: flex;\n      flex-direction: column;\n      align-items: center;\n      justify-content: center;\n      font-family: 'Ubuntu', 'DejaVu Sans', sans-serif;\n      color: #fff;\n    }\n    .card {\n      background: rgba(255,255,255,0.07);\n      backdrop-filter: blur(12px);\n      border: 1px solid rgba(255,255,255,0.15);\n      border-radius: 20px;\n      padding: 50px 60px;\n      text-align: center;\n      max-width: 620px;\n      box-shadow: 0 25px 50px rgba(0,0,0,0.5);\n    }\n    .badge {\n      display: inline-block;\n      background: #e95420;\n      color: #fff;\n      font-size: 0.75rem;\n      font-weight: 700;\n      letter-spacing: 2px;\n      text-transform: uppercase;\n      padding: 6px 18px;\n      border-radius: 20px;\n      margin-bottom: 24px;\n    }\n    h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: 12px; }\n    p  { font-size: 1.1rem; opacity: 0.75; line-height: 1.6; }\n    .meta {\n      margin-top: 32px;\n      display: flex;\n      gap: 16px;\n      justify-content: center;\n      flex-wrap: wrap;\n    }\n    .chip {\n      background: rgba(233,84,32,0.25);\n      border: 1px solid rgba(233,84,32,0.5);\n      border-radius: 8px;\n      padding: 8px 16px;\n      font-size: 0.85rem;\n    }\n    .footer { margin-top: 36px; font-size: 0.8rem; opacity: 0.45; }\n  </style>\n</head>\n<body>\n  <div class=\"card\">\n    <span class=\"badge\">Amazon Linux 2023</span>\n    <h1>🐧 Nginx Web Server</h1>\n    <p>Successfully deployed via AWS CloudFormation.<br/>Nginx is running and serving this page.</p>\n    <div class=\"meta\">\n      <span class=\"chip\">⚙️ Nginx</span>\n      <span class=\"chip\">☁️ AWS EC2 — us-east-1</span>\n      <span class=\"chip\">🔒 CloudFormation</span>\n    </div>\n    <div class=\"footer\">Automated infrastructure deployment — Linux stack</div>\n  </div>\n</body>\n</html>\nHTMLEOF\n\n# ── Fix permissions ──\nchmod 644 /usr/share/nginx/html/index.html\n\n# ── Reload Nginx ──\nsystemctl reload nginx\n\necho \"Nginx setup complete.\"\n"
+				}
+			}
+		}
+	},
+	"Outputs": {
+		"WindowsPublicIP": {
+			"Condition": "DeployWindows",
+			"Description": "Auto-assigned Public IP — Windows IIS Server",
+			"Value": {
+				"Fn::GetAtt": [
+					"WindowsInstance",
+					"PublicIp"
+				]
+			}
+		},
+		"WindowsHTTPURL": {
+			"Condition": "DeployWindows",
+			"Description": "HTTP URL — Windows IIS",
+			"Value": {
+				"Fn::Sub": "http://${WindowsInstance.PublicIp}"
+			}
+		},
+		"WindowsRDPCommand": {
+			"Condition": "DeployWindows",
+			"Description": "RDP connection command",
+			"Value": {
+				"Fn::Sub": "mstsc /v:${WindowsInstance.PublicIp}"
+			}
+		},
+		"LinuxPublicIP": {
+			"Condition": "DeployLinux",
+			"Description": "Auto-assigned Public IP — Linux Nginx Server",
+			"Value": {
+				"Fn::GetAtt": [
+					"LinuxInstance",
+					"PublicIp"
+				]
+			}
+		},
+		"LinuxHTTPURL": {
+			"Condition": "DeployLinux",
+			"Description": "HTTP URL — Linux Nginx",
+			"Value": {
+				"Fn::Sub": "http://${LinuxInstance.PublicIp}"
+			}
+		},
+		"LinuxSSHCommand": {
+			"Condition": "DeployLinux",
+			"Description": "SSH command to connect to Linux instance",
+			"Value": {
+				"Fn::Sub": "ssh -i ${KeyPairName}.pem ec2-user@${LinuxInstance.PublicIp}"
+			}
+		}
+	}
+}
