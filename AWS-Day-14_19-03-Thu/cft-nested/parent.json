@@ -5,7 +5,7 @@
         "TemplatesBucketURL": {
             "Type": "String",
             "Description": "S3 URL prefix where nested CFT files are uploaded. Example: https://s3.amazonaws.com/my-cft-bucket/nested\n",
-            "Default": "https://s3.amazonaws.com/my-cft-templates-bucket/nested"
+            "Default": "https://cftbucketnested.s3.ap-south-1.amazonaws.com/cft-nested"
         },
         "AmiId": {
             "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
@@ -52,7 +52,7 @@
             "Type": "AWS::CloudFormation::Stack",
             "Properties": {
                 "TemplateURL": {
-                    "Fn::Sub": "${TemplatesBucketURL}/nested-network-stack.yaml"
+                    "Fn::Sub": "${TemplatesBucketURL}/network.json"
                 },
                 "TimeoutInMinutes": 15,
                 "Tags": [
@@ -68,7 +68,7 @@
             "DependsOn": "NetworkStack",
             "Properties": {
                 "TemplateURL": {
-                    "Fn::Sub": "${TemplatesBucketURL}/nested-compute-stack.yaml"
+                    "Fn::Sub": "${TemplatesBucketURL}/compute.json"
                 },
                 "TimeoutInMinutes": 20,
                 "Parameters": {
@@ -122,7 +122,7 @@
             "DependsOn": "ComputeStack",
             "Properties": {
                 "TemplateURL": {
-                    "Fn::Sub": "${TemplatesBucketURL}/nested-alb-stack.yaml"
+                    "Fn::Sub": "${TemplatesBucketURL}/alb.json"
                 },
                 "TimeoutInMinutes": 15,
                 "Parameters": {
@@ -163,7 +163,7 @@
             "Type": "AWS::CloudFormation::Stack",
             "Properties": {
                 "TemplateURL": {
-                    "Fn::Sub": "${TemplatesBucketURL}/nested-s3-static-stack.yaml"
+                    "Fn::Sub": "${TemplatesBucketURL}/data.json"
                 },
                 "TimeoutInMinutes": 10,
                 "Parameters": {

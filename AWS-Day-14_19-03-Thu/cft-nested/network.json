@@ -1,221 +1,325 @@
 {
-	"AWSTemplateFormatVersion": "2010-09-09",
-	"Description": "PARENT STACK — Orchestrates all nested stacks:\n  1. nested-network-stack.yaml   → VPC, Subnets, IGW, NGW, Route Tables, SG\n  2. nested-compute-stack.yaml   → Launch Template, Auto Scaling Group, Target Group, IAM SSM Role\n  3. nested-alb-stack.yaml       → Application Load Balancer, Listener, ALB Security Group\n  4. nested-s3-static-stack.yaml → S3 Static Website Bucket + Bucket Policy\n",
-	"Parameters": {
-		"TemplatesBucketURL": {
-			"Type": "String",
-			"Description": "S3 URL prefix where nested CFT files are uploaded. Example: https://s3.amazonaws.com/my-cft-bucket/nested\n",
-			"Default": "https://s3.amazonaws.com/my-cft-templates-bucket/nested"
-		},
-		"AmiId": {
-			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
-			"Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
-			"Description": "AMI ID for EC2 instances in the Auto Scaling Group"
-		},
-		"InstanceType": {
-			"Type": "String",
-			"Default": "t3.micro",
-			"AllowedValues": [
-				"t3.micro",
-				"t3.small",
-				"t3.medium"
-			],
-			"Description": "EC2 instance type for the Launch Template"
-		},
-		"KeyName": {
-			"Type": "AWS::EC2::KeyPair::KeyName",
-			"Description": "EC2 Key Pair name for SSH access"
-		},
-		"ASGMinSize": {
-			"Type": "Number",
-			"Default": 1,
-			"Description": "Minimum number of instances in the Auto Scaling Group"
-		},
-		"ASGMaxSize": {
-			"Type": "Number",
-			"Default": 3,
-			"Description": "Maximum number of instances in the Auto Scaling Group"
-		},
-		"ASGDesiredCapacity": {
-			"Type": "Number",
-			"Default": 2,
-			"Description": "Desired number of instances in the Auto Scaling Group"
-		},
-		"StaticWebsiteBucketName": {
-			"Type": "String",
-			"Description": "Globally unique name for the S3 static website bucket",
-			"MinLength": 3
-		}
-	},
-	"Resources": {
-		"NetworkStack": {
-			"Type": "AWS::CloudFormation::Stack",
-			"Properties": {
-				"TemplateURL": {
-					"Fn::Sub": "${TemplatesBucketURL}/nested-network-stack.yaml"
-				},
-				"TimeoutInMinutes": 15,
-				"Tags": [
-					{
-						"Key": "StackLayer",
-						"Value": "Network"
-					}
-				]
-			}
-		},
-		"ComputeStack": {
-			"Type": "AWS::CloudFormation::Stack",
-			"DependsOn": "NetworkStack",
-			"Properties": {
-				"TemplateURL": {
-					"Fn::Sub": "${TemplatesBucketURL}/nested-compute-stack.yaml"
-				},
-				"TimeoutInMinutes": 20,
-				"Parameters": {
-					"AmiId": {
-						"Ref": "AmiId"
-					},
-					"InstanceType": {
-						"Ref": "InstanceType"
-					},
-					"KeyName": {
-						"Ref": "KeyName"
-					},
-					"VpcId": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.VpcId"
-						]
-					},
-					"PrivateSubnet1Id": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.PrivateSubnet1Id"
-						]
-					},
-					"CommonSecurityGroupId": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.CommonSecurityGroupId"
-						]
-					},
-					"ASGMinSize": {
-						"Ref": "ASGMinSize"
-					},
-					"ASGMaxSize": {
-						"Ref": "ASGMaxSize"
-					},
-					"ASGDesiredCapacity": {
-						"Ref": "ASGDesiredCapacity"
-					}
-				},
-				"Tags": [
-					{
-						"Key": "StackLayer",
-						"Value": "Compute"
-					}
-				]
-			}
-		},
-		"ALBStack": {
-			"Type": "AWS::CloudFormation::Stack",
-			"DependsOn": "ComputeStack",
-			"Properties": {
-				"TemplateURL": {
-					"Fn::Sub": "${TemplatesBucketURL}/nested-alb-stack.yaml"
-				},
-				"TimeoutInMinutes": 15,
-				"Parameters": {
-					"VpcId": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.VpcId"
-						]
-					},
-					"PublicSubnet1Id": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.PublicSubnet1Id"
-						]
-					},
-					"PublicSubnet2Id": {
-						"Fn::GetAtt": [
-							"NetworkStack",
-							"Outputs.PublicSubnet2Id"
-						]
-					},
-					"TargetGroupArn": {
-						"Fn::GetAtt": [
-							"ComputeStack",
-							"Outputs.TargetGroupArn"
-						]
-					}
-				},
-				"Tags": [
-					{
-						"Key": "StackLayer",
-						"Value": "ALB"
-					}
-				]
-			}
-		},
-		"S3StaticStack": {
-			"Type": "AWS::CloudFormation::Stack",
-			"Properties": {
-				"TemplateURL": {
-					"Fn::Sub": "${TemplatesBucketURL}/nested-s3-static-stack.yaml"
-				},
-				"TimeoutInMinutes": 10,
-				"Parameters": {
-					"StaticWebsiteBucketName": {
-						"Ref": "StaticWebsiteBucketName"
-					}
-				},
-				"Tags": [
-					{
-						"Key": "StackLayer",
-						"Value": "Storage"
-					}
-				]
-			}
-		}
-	},
-	"Outputs": {
-		"VpcId": {
-			"Description": "VPC ID from Network Stack",
-			"Value": {
-				"Fn::GetAtt": [
-					"NetworkStack",
-					"Outputs.VpcId"
-				]
-			}
-		},
-		"ALBDNSName": {
-			"Description": "Application Load Balancer DNS Name",
-			"Value": {
-				"Fn::GetAtt": [
-					"ALBStack",
-					"Outputs.ALBDNSName"
-				]
-			}
-		},
-		"StaticWebsiteURL": {
-			"Description": "S3 Static Website Endpoint",
-			"Value": {
-				"Fn::GetAtt": [
-					"S3StaticStack",
-					"Outputs.StaticWebsiteURL"
-				]
-			}
-		},
-		"AutoScalingGroupName": {
-			"Description": "Auto Scaling Group Name",
-			"Value": {
-				"Fn::GetAtt": [
-					"ComputeStack",
-					"Outputs.AutoScalingGroupName"
-				]
-			}
-		}
-	}
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "NESTED STACK 1 — NETWORK\nCreates: VPC, 2 Public Subnets (different AZs), 1 Private Subnet,\nIGW, NAT Gateway (zonal, in PublicSubnet1), Public Route Table,\nPrivate Route Table, Route Table Associations, Common Security Group.\n",
+    "Resources": {
+        "VPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": "10.0.0.0/16",
+                "EnableDnsSupport": true,
+                "EnableDnsHostnames": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-vpc"
+                    }
+                ]
+            }
+        },
+        "InternetGateway": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-igw"
+                    }
+                ]
+            }
+        },
+        "AttachInternetGateway": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": "10.0.1.0/24",
+                "MapPublicIpOnLaunch": true,
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-public-subnet-1"
+                    }
+                ]
+            }
+        },
+        "PublicSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": "10.0.2.0/24",
+                "MapPublicIpOnLaunch": true,
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-public-subnet-2"
+                    }
+                ]
+            }
+        },
+        "PrivateSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": "10.0.3.0/24",
+                "MapPublicIpOnLaunch": false,
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-private-subnet-1"
+                    }
+                ]
+            }
+        },
+        "NatGatewayEIP": {
+            "Type": "AWS::EC2::EIP",
+            "DependsOn": "AttachInternetGateway",
+            "Properties": {
+                "Domain": "vpc",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-nat-eip"
+                    }
+                ]
+            }
+        },
+        "NatGateway": {
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+                "AllocationId": {
+                    "Fn::GetAtt": [
+                        "NatGatewayEIP",
+                        "AllocationId"
+                    ]
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnet1"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-nat-gateway"
+                    }
+                ]
+            }
+        },
+        "PublicRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-public-rt"
+                    }
+                ]
+            }
+        },
+        "PublicDefaultRoute": {
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "AttachInternetGateway",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PublicSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                }
+            }
+        },
+        "PublicSubnet2RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PublicSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                }
+            }
+        },
+        "PrivateRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-private-rt"
+                    }
+                ]
+            }
+        },
+        "PrivateDefaultRoute": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": {
+                    "Ref": "NatGateway"
+                }
+            }
+        },
+        "PrivateSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PrivateSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTable"
+                }
+            }
+        },
+        "CommonSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Allow SSH (22) and HTTP (80) from anywhere",
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 22,
+                        "ToPort": 22,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 80,
+                        "ToPort": 80,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-common-sg"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "VpcId": {
+            "Description": "VPC ID",
+            "Value": {
+                "Ref": "VPC"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-VpcId"
+                }
+            }
+        },
+        "PublicSubnet1Id": {
+            "Description": "Public Subnet 1 ID (AZ-0)",
+            "Value": {
+                "Ref": "PublicSubnet1"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-PublicSubnet1Id"
+                }
+            }
+        },
+        "PublicSubnet2Id": {
+            "Description": "Public Subnet 2 ID (AZ-1)",
+            "Value": {
+                "Ref": "PublicSubnet2"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-PublicSubnet2Id"
+                }
+            }
+        },
+        "PrivateSubnet1Id": {
+            "Description": "Private Subnet 1 ID (AZ-0, same AZ as PublicSubnet1)",
+            "Value": {
+                "Ref": "PrivateSubnet1"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-PrivateSubnet1Id"
+                }
+            }
+        },
+        "CommonSecurityGroupId": {
+            "Description": "Common Security Group ID",
+            "Value": {
+                "Ref": "CommonSecurityGroup"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-CommonSecurityGroupId"
+                }
+            }
+        },
+        "NatGatewayId": {
+            "Description": "NAT Gateway ID",
+            "Value": {
+                "Ref": "NatGateway"
+            }
+        }
+    }
 }
