@@ -1,0 +1,96 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "NESTED STACK 4 — S3 STATIC WEBSITE\nCreates: S3 bucket with static website hosting enabled (index.html / error.html),\nand a Bucket Policy allowing public HTTP GET access to all objects.\n",
+    "Parameters": {
+        "StaticWebsiteBucketName": {
+            "Type": "String",
+            "Description": "Globally unique S3 bucket name for the static website",
+            "MinLength": 3
+        }
+    },
+    "Resources": {
+        "StaticWebsiteBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "BucketName": {
+                    "Ref": "StaticWebsiteBucketName"
+                },
+                "PublicAccessBlockConfiguration": {
+                    "BlockPublicAcls": false,
+                    "BlockPublicPolicy": false,
+                    "IgnorePublicAcls": false,
+                    "RestrictPublicBuckets": false
+                },
+                "WebsiteConfiguration": {
+                    "IndexDocument": "index.html",
+                    "ErrorDocument": "error.html"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "StaticWebsiteBucketName"
+                        }
+                    },
+                    {
+                        "Key": "Purpose",
+                        "Value": "StaticWebsite"
+                    }
+                ]
+            }
+        },
+        "StaticWebsiteBucketPolicy": {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": {
+                    "Ref": "StaticWebsiteBucket"
+                },
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "AllowPublicReadAccess",
+                            "Effect": "Allow",
+                            "Principal": "*",
+                            "Action": "s3:GetObject",
+                            "Resource": {
+                                "Fn::Sub": "arn:aws:s3:::${StaticWebsiteBucketName}/*"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "StaticWebsiteURL": {
+            "Description": "S3 static website endpoint URL",
+            "Value": {
+                "Fn::GetAtt": [
+                    "StaticWebsiteBucket",
+                    "WebsiteURL"
+                ]
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-StaticWebsiteURL"
+                }
+            }
+        },
+        "BucketName": {
+            "Description": "S3 Bucket Name",
+            "Value": {
+                "Ref": "StaticWebsiteBucket"
+            }
+        },
+        "BucketArn": {
+            "Description": "S3 Bucket ARN",
+            "Value": {
+                "Fn::GetAtt": [
+                    "StaticWebsiteBucket",
+                    "Arn"
+                ]
+            }
+        }
+    }
+}

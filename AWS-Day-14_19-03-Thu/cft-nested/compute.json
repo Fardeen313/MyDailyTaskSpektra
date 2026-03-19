@@ -1,0 +1,235 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "NESTED STACK 2 — COMPUTE\nCreates: IAM Role (SSM Agent), Instance Profile, Launch Template,\nTarget Group (HTTP/80), Auto Scaling Group in Private Subnet.\nReceives VPC/Subnet/SG references from the Network Stack via Parameters.\n",
+    "Parameters": {
+        "AmiId": {
+            "Type": "AWS::EC2::Image::Id",
+            "Description": "AMI ID for EC2 instances"
+        },
+        "InstanceType": {
+            "Type": "String",
+            "Default": "t3.micro"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "EC2 Key Pair for SSH"
+        },
+        "VpcId": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "VPC ID from Network Stack"
+        },
+        "PrivateSubnet1Id": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "Private Subnet ID from Network Stack (ASG launches here)"
+        },
+        "CommonSecurityGroupId": {
+            "Type": "AWS::EC2::SecurityGroup::Id",
+            "Description": "Common SG ID from Network Stack"
+        },
+        "ASGMinSize": {
+            "Type": "Number",
+            "Default": 1
+        },
+        "ASGMaxSize": {
+            "Type": "Number",
+            "Default": 3
+        },
+        "ASGDesiredCapacity": {
+            "Type": "Number",
+            "Default": 2
+        }
+    },
+    "Resources": {
+        "EC2SSMRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": "prod-ec2-ssm-role",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "ec2.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-ec2-ssm-role"
+                    }
+                ]
+            }
+        },
+        "EC2InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "InstanceProfileName": "prod-ec2-ssm-instance-profile",
+                "Roles": [
+                    {
+                        "Ref": "EC2SSMRole"
+                    }
+                ]
+            }
+        },
+        "AppTargetGroup": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "Name": "prod-app-tg",
+                "VpcId": {
+                    "Ref": "VpcId"
+                },
+                "Protocol": "HTTP",
+                "Port": 80,
+                "TargetType": "instance",
+                "HealthCheckProtocol": "HTTP",
+                "HealthCheckPath": "/",
+                "HealthCheckIntervalSeconds": 30,
+                "HealthCheckTimeoutSeconds": 5,
+                "HealthyThresholdCount": 2,
+                "UnhealthyThresholdCount": 3,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-app-tg"
+                    }
+                ]
+            }
+        },
+        "AppLaunchTemplate": {
+            "Type": "AWS::EC2::LaunchTemplate",
+            "Properties": {
+                "LaunchTemplateName": "prod-app-launch-template",
+                "LaunchTemplateData": {
+                    "ImageId": {
+                        "Ref": "AmiId"
+                    },
+                    "InstanceType": {
+                        "Ref": "InstanceType"
+                    },
+                    "KeyName": {
+                        "Ref": "KeyName"
+                    },
+                    "IamInstanceProfile": {
+                        "Arn": {
+                            "Fn::GetAtt": [
+                                "EC2InstanceProfile",
+                                "Arn"
+                            ]
+                        }
+                    },
+                    "SecurityGroupIds": [
+                        {
+                            "Ref": "CommonSecurityGroupId"
+                        }
+                    ],
+                    "UserData": {
+                        "Fn::Base64": "#!/bin/bash\ndnf update -y\ndnf install -y nginx\nsystemctl start nginx\nsystemctl enable nginx\n# Enable SSM Agent (pre-installed on AL2023, just ensure it's running)\nsystemctl enable amazon-ssm-agent\nsystemctl start amazon-ssm-agent\n"
+                    },
+                    "TagSpecifications": [
+                        {
+                            "ResourceType": "instance",
+                            "Tags": [
+                                {
+                                    "Key": "Name",
+                                    "Value": "prod-asg-instance"
+                                }
+                            ]
+                        },
+                        {
+                            "ResourceType": "volume",
+                            "Tags": [
+                                {
+                                    "Key": "Name",
+                                    "Value": "prod-asg-volume"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        "AppAutoScalingGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AutoScalingGroupName": "prod-app-asg",
+                "LaunchTemplate": {
+                    "LaunchTemplateId": {
+                        "Ref": "AppLaunchTemplate"
+                    },
+                    "Version": {
+                        "Fn::GetAtt": [
+                            "AppLaunchTemplate",
+                            "LatestVersionNumber"
+                        ]
+                    }
+                },
+                "MinSize": {
+                    "Ref": "ASGMinSize"
+                },
+                "MaxSize": {
+                    "Ref": "ASGMaxSize"
+                },
+                "DesiredCapacity": {
+                    "Ref": "ASGDesiredCapacity"
+                },
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "PrivateSubnet1Id"
+                    }
+                ],
+                "TargetGroupARNs": [
+                    {
+                        "Ref": "AppTargetGroup"
+                    }
+                ],
+                "HealthCheckType": "ELB",
+                "HealthCheckGracePeriod": 120,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-asg-instance",
+                        "PropagateAtLaunch": true
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "TargetGroupArn": {
+            "Description": "Target Group ARN (used by ALB Stack)",
+            "Value": {
+                "Ref": "AppTargetGroup"
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-TargetGroupArn"
+                }
+            }
+        },
+        "AutoScalingGroupName": {
+            "Description": "Auto Scaling Group Name",
+            "Value": {
+                "Ref": "AppAutoScalingGroup"
+            }
+        },
+        "LaunchTemplateId": {
+            "Description": "Launch Template ID",
+            "Value": {
+                "Ref": "AppLaunchTemplate"
+            }
+        },
+        "EC2SSMRoleName": {
+            "Description": "IAM Role attached to EC2 for SSM",
+            "Value": {
+                "Ref": "EC2SSMRole"
+            }
+        }
+    }
+}

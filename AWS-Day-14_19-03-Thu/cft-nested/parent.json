@@ -1,0 +1,221 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "PARENT STACK — Orchestrates all nested stacks:\n  1. nested-network-stack.yaml   → VPC, Subnets, IGW, NGW, Route Tables, SG\n  2. nested-compute-stack.yaml   → Launch Template, Auto Scaling Group, Target Group, IAM SSM Role\n  3. nested-alb-stack.yaml       → Application Load Balancer, Listener, ALB Security Group\n  4. nested-s3-static-stack.yaml → S3 Static Website Bucket + Bucket Policy\n",
+    "Parameters": {
+        "TemplatesBucketURL": {
+            "Type": "String",
+            "Description": "S3 URL prefix where nested CFT files are uploaded. Example: https://s3.amazonaws.com/my-cft-bucket/nested\n",
+            "Default": "https://s3.amazonaws.com/my-cft-templates-bucket/nested"
+        },
+        "AmiId": {
+            "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+            "Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+            "Description": "AMI ID for EC2 instances in the Auto Scaling Group"
+        },
+        "InstanceType": {
+            "Type": "String",
+            "Default": "t3.micro",
+            "AllowedValues": [
+                "t3.micro",
+                "t3.small",
+                "t3.medium"
+            ],
+            "Description": "EC2 instance type for the Launch Template"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "EC2 Key Pair name for SSH access"
+        },
+        "ASGMinSize": {
+            "Type": "Number",
+            "Default": 1,
+            "Description": "Minimum number of instances in the Auto Scaling Group"
+        },
+        "ASGMaxSize": {
+            "Type": "Number",
+            "Default": 3,
+            "Description": "Maximum number of instances in the Auto Scaling Group"
+        },
+        "ASGDesiredCapacity": {
+            "Type": "Number",
+            "Default": 2,
+            "Description": "Desired number of instances in the Auto Scaling Group"
+        },
+        "StaticWebsiteBucketName": {
+            "Type": "String",
+            "Description": "Globally unique name for the S3 static website bucket",
+            "MinLength": 3
+        }
+    },
+    "Resources": {
+        "NetworkStack": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "TemplateURL": {
+                    "Fn::Sub": "${TemplatesBucketURL}/nested-network-stack.yaml"
+                },
+                "TimeoutInMinutes": 15,
+                "Tags": [
+                    {
+                        "Key": "StackLayer",
+                        "Value": "Network"
+                    }
+                ]
+            }
+        },
+        "ComputeStack": {
+            "Type": "AWS::CloudFormation::Stack",
+            "DependsOn": "NetworkStack",
+            "Properties": {
+                "TemplateURL": {
+                    "Fn::Sub": "${TemplatesBucketURL}/nested-compute-stack.yaml"
+                },
+                "TimeoutInMinutes": 20,
+                "Parameters": {
+                    "AmiId": {
+                        "Ref": "AmiId"
+                    },
+                    "InstanceType": {
+                        "Ref": "InstanceType"
+                    },
+                    "KeyName": {
+                        "Ref": "KeyName"
+                    },
+                    "VpcId": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.VpcId"
+                        ]
+                    },
+                    "PrivateSubnet1Id": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.PrivateSubnet1Id"
+                        ]
+                    },
+                    "CommonSecurityGroupId": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.CommonSecurityGroupId"
+                        ]
+                    },
+                    "ASGMinSize": {
+                        "Ref": "ASGMinSize"
+                    },
+                    "ASGMaxSize": {
+                        "Ref": "ASGMaxSize"
+                    },
+                    "ASGDesiredCapacity": {
+                        "Ref": "ASGDesiredCapacity"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "StackLayer",
+                        "Value": "Compute"
+                    }
+                ]
+            }
+        },
+        "ALBStack": {
+            "Type": "AWS::CloudFormation::Stack",
+            "DependsOn": "ComputeStack",
+            "Properties": {
+                "TemplateURL": {
+                    "Fn::Sub": "${TemplatesBucketURL}/nested-alb-stack.yaml"
+                },
+                "TimeoutInMinutes": 15,
+                "Parameters": {
+                    "VpcId": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.VpcId"
+                        ]
+                    },
+                    "PublicSubnet1Id": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.PublicSubnet1Id"
+                        ]
+                    },
+                    "PublicSubnet2Id": {
+                        "Fn::GetAtt": [
+                            "NetworkStack",
+                            "Outputs.PublicSubnet2Id"
+                        ]
+                    },
+                    "TargetGroupArn": {
+                        "Fn::GetAtt": [
+                            "ComputeStack",
+                            "Outputs.TargetGroupArn"
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "StackLayer",
+                        "Value": "ALB"
+                    }
+                ]
+            }
+        },
+        "S3StaticStack": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "TemplateURL": {
+                    "Fn::Sub": "${TemplatesBucketURL}/nested-s3-static-stack.yaml"
+                },
+                "TimeoutInMinutes": 10,
+                "Parameters": {
+                    "StaticWebsiteBucketName": {
+                        "Ref": "StaticWebsiteBucketName"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "StackLayer",
+                        "Value": "Storage"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "VpcId": {
+            "Description": "VPC ID from Network Stack",
+            "Value": {
+                "Fn::GetAtt": [
+                    "NetworkStack",
+                    "Outputs.VpcId"
+                ]
+            }
+        },
+        "ALBDNSName": {
+            "Description": "Application Load Balancer DNS Name",
+            "Value": {
+                "Fn::GetAtt": [
+                    "ALBStack",
+                    "Outputs.ALBDNSName"
+                ]
+            }
+        },
+        "StaticWebsiteURL": {
+            "Description": "S3 Static Website Endpoint",
+            "Value": {
+                "Fn::GetAtt": [
+                    "S3StaticStack",
+                    "Outputs.StaticWebsiteURL"
+                ]
+            }
+        },
+        "AutoScalingGroupName": {
+            "Description": "Auto Scaling Group Name",
+            "Value": {
+                "Fn::GetAtt": [
+                    "ComputeStack",
+                    "Outputs.AutoScalingGroupName"
+                ]
+            }
+        }
+    }
+}

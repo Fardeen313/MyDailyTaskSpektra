@@ -1,0 +1,127 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "NESTED STACK 3 — APPLICATION LOAD BALANCER\nCreates: ALB Security Group, internet-facing ALB across 2 public subnets,\nHTTP Listener on port 80 forwarding to the Target Group from Compute Stack.\n",
+    "Parameters": {
+        "VpcId": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "VPC ID from Network Stack"
+        },
+        "PublicSubnet1Id": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "Public Subnet 1 ID from Network Stack"
+        },
+        "PublicSubnet2Id": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "Public Subnet 2 ID from Network Stack"
+        },
+        "TargetGroupArn": {
+            "Type": "String",
+            "Description": "Target Group ARN from Compute Stack"
+        }
+    },
+    "Resources": {
+        "ALBSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Allow HTTP and HTTPS inbound to the ALB",
+                "VpcId": {
+                    "Ref": "VpcId"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 80,
+                        "ToPort": 80,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 443,
+                        "ToPort": 443,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-alb-sg"
+                    }
+                ]
+            }
+        },
+        "AppLoadBalancer": {
+            "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties": {
+                "Name": "prod-app-alb",
+                "Scheme": "internet-facing",
+                "Type": "application",
+                "IpAddressType": "ipv4",
+                "Subnets": [
+                    {
+                        "Ref": "PublicSubnet1Id"
+                    },
+                    {
+                        "Ref": "PublicSubnet2Id"
+                    }
+                ],
+                "SecurityGroups": [
+                    {
+                        "Ref": "ALBSecurityGroup"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "prod-app-alb"
+                    }
+                ]
+            }
+        },
+        "ALBHTTPListener": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "LoadBalancerArn": {
+                    "Ref": "AppLoadBalancer"
+                },
+                "Protocol": "HTTP",
+                "Port": 80,
+                "DefaultActions": [
+                    {
+                        "Type": "forward",
+                        "TargetGroupArn": {
+                            "Ref": "TargetGroupArn"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "ALBDNSName": {
+            "Description": "DNS name of the Application Load Balancer",
+            "Value": {
+                "Fn::GetAtt": [
+                    "AppLoadBalancer",
+                    "DNSName"
+                ]
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${AWS::StackName}-ALBDNSName"
+                }
+            }
+        },
+        "ALBArn": {
+            "Description": "ALB ARN",
+            "Value": {
+                "Ref": "AppLoadBalancer"
+            }
+        },
+        "ALBSecurityGroupId": {
+            "Description": "ALB Security Group ID",
+            "Value": {
+                "Ref": "ALBSecurityGroup"
+            }
+        }
+    }
+}
