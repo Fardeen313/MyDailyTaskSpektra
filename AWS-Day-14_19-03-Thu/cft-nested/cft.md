@@ -275,3 +275,9 @@ ComputeStack Outputs
 ---
 
 *Nested CFT Project | Region: ap-south-1*
+![alt text](<Screenshot 2026-03-19 154110.png>) 
+![alt text](<Screenshot 2026-03-19 154103.png>) 
+![alt text](<Screenshot 2026-03-19 154053.png>) 
+![alt text](<Screenshot 2026-03-19 154040.png>) 
+![alt text](<Screenshot 2026-03-19 154020.png>) 
+![alt text](<Screenshot 2026-03-19 145830.png>)
