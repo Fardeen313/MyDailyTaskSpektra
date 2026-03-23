@@ -1,0 +1,12 @@
+{  
+   "AWSTemplateFormatVersion": "2010-09-09",
+   "Resources" : {
+   "myInternetGateway" : {
+      "Type" : "AWS::EC2::InternetGateway",
+      "Properties" : {
+        "Tags" : [ {"Key" : "stack", "Value" : "production"}]
+      }
+   }
+  }
+}
+  
