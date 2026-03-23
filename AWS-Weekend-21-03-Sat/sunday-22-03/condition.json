@@ -1,0 +1,31 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": ["dev", "test"]
+    }
+  },
+  "Conditions": {
+    "IsTest": {
+      "Fn::Equals": [{ "Ref": "Environment" }, "test"]
+    }
+  },
+  "Resources": {
+    "PrimaryInstance": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "InstanceType": "t3.micro",
+        "ImageId": "ami-0f58b397bc5c1f2e8"
+      }
+    },
+    "SecondaryInstance": {
+    "Type": "AWS::EC2::Instance",
+    "Condition": "IsTest",
+    "Properties": {
+    "InstanceType": "t3.micro",
+    "ImageId": "ami-0f58b397bc5c1f2e8"
+    }
+    }
+    }
+}

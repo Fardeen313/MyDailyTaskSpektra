@@ -1,0 +1,69 @@
+{
+    "AWSTemplateFormatVersion":"2010-09-09",
+    "Description": "The AWS CloudFormation template foe EC2",
+    "Parameters": {
+        "InstanceType": {
+            "Type": "String",
+            "Description": "EC2 instance type (e.g., t3.micro)",
+            "Default": "t3.micro",
+            "AllowedValues": [
+                "t3.small",
+                "t3.micro",
+                "t3a.micro"
+            ],
+            "ConstraintDescription": "must be a valid EC2 instance type."
+        },
+        "ImageId": {
+            "Type": "AWS::EC2::Image::Id",
+            "Description": "AMI ID for the EC2 instance (e.g., ami-0c94855ba95c71c99 for Amazon Linux 2 in us-east-1)"
+        },
+        "KeyName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance"
+        },
+        "Environment": {
+            "Type": "String",
+            "Default": "dev",
+            "AllowedValues":["dev","test","staging","prod"],
+            "Description": "Deployment environment (dev, test, staging, prod)"
+        }
+    },
+    "Resources": {
+        "EC2Stack": {
+            "Type" : "AWS::EC2::Instance",
+            "Properties": {
+                "InstanceType": {"Ref": "InstanceType"},
+                "ImageId": {"Ref": "ImageId"},
+                "KeyName": {"Ref": "KeyName"},
+                "NetworkInterfaces": [
+                    {
+                        "AssociatePublicIpAddress":"true",
+                        "DeviceIndex":"0"
+                    }
+                ],
+                "UserData":{
+                    "Fn::Base64": {
+                        "Fn::Sub":"#!/bin/bash\nyum install -y nginx\nsystemctl start nginx\nsystemctl enable nginx"
+                    }
+                },
+                "Tags": [
+                    {"Key": "Name", "Value": {"Fn::Sub":"${Environment}-web-server"}},
+                    {"Key": "Environment", "Value": {"Ref": "Environment"}}
+            
+                ]
+
+            }        }
+    },
+    "Outputs":{
+        "Idinstance":{"Value": {"Ref":"EC2Stack"},"Description":"ID of the EC2 instance"},
+        "PublicIP":{"Value":{"Fn::GetAtt":["EC2Stack","PublicIp"]},"Description":"Public IP address of the EC2 instance"},
+        "SSHCommand":{"Value":{"Fn::Sub":"ssh -i C:/Users/Fardeen Attar/Downloads/fardeen001.pem ec2-user@${EC2Stack.PublicIp}"}},
+        "WebURL":{
+            "Value":{"Fn::Sub":"http://${EC2Stack.PublicIp}"}
+        },
+        "WebDns":{
+            "Value":{"Fn::Sub":"http://${EC2Stack.PublicDnsName}"}
+        }
+
+    }
+}
