@@ -1,0 +1,126 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Simple EC2 instance with auto-fetched AMI (Amazon Linux 2) per region and a newly created Key Pair.\n",
+    "Parameters": {
+        "InstanceType": {
+            "Type": "String",
+            "Default": "t3.micro",
+            "AllowedValues": [
+                "t3.micro",
+                "t3.small",
+                "t3.medium"
+            ],
+            "Description": "EC2 instance type"
+        },
+        "KeyPairName": {
+            "Type": "String",
+            "Default": "my-ec2-keypair",
+            "Description": "Name for the new EC2 Key Pair"
+        },
+        "SSHLocation": {
+            "Type": "String",
+            "Default": "0.0.0.0/0",
+            "Description": "CIDR range allowed to SSH into the instance. Restrict this to your IP for production (e.g. 203.0.113.0/32).\n"
+        }
+    },
+    "Resources": {
+        "EC2KeyPair": {
+            "Type": "AWS::EC2::KeyPair",
+            "Properties": {
+                "KeyName": {
+                    "Ref": "KeyPairName"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "KeyPairName"
+                        }
+                    }
+                ]
+            }
+        },
+        "InstanceSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Allow SSH access",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 22,
+                        "ToPort": 22,
+                        "CidrIp": {
+                            "Ref": "SSHLocation"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "ec2-ssh-sg"
+                    }
+                ]
+            }
+        },
+        "EC2Instance": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "InstanceType": {
+                    "Ref": "InstanceType"
+                },
+                "ImageId": {
+                    "Fn::Sub": "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
+                },
+                "KeyName": {
+                    "Ref": "EC2KeyPair"
+                },
+                "SecurityGroupIds": [
+                    {
+                        "Fn::GetAtt": [
+                            "InstanceSecurityGroup",
+                            "GroupId"
+                        ]
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "SimpleEC2Instance"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "InstanceId": {
+            "Description": "EC2 Instance ID",
+            "Value": {
+                "Ref": "EC2Instance"
+            }
+        },
+        "PublicIP": {
+            "Description": "Public IP address of the EC2 instance",
+            "Value": {
+                "Fn::GetAtt": [
+                    "EC2Instance",
+                    "PublicIp"
+                ]
+            }
+        },
+        "KeyPairId": {
+            "Description": "Key Pair ID. Retrieve the private key from SSM Parameter Store: aws ssm get-parameter --name /ec2/keypair/<KeyPairId> --with-decryption --query Parameter.Value --output text > my-key.pem\n",
+            "Value": {
+                "Fn::GetAtt": [
+                    "EC2KeyPair",
+                    "KeyPairId"
+                ]
+            }
+        },
+        "SSHCommand": {
+            "Description": "SSH command to connect to the instance",
+            "Value": {
+                "Fn::Sub": "ssh -i my-key.pem ec2-user@${EC2Instance.PublicIp}"
+            }
+        }
+    }
+}
